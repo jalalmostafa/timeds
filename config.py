@@ -11,29 +11,38 @@ class ConfigException(Exception):
 
 
 class SchemeProperty:
-    def __init__(self, full_name, propertyType, required, default='', linked=''):
+    def __init__(self, full_name, propertyType, required, default=''):
         self.full_name = full_name
         self.type = propertyType
         self.required = required
         self.default = default
-        self.linked = linked
+
+    def __str__(self):
+        return f'(full_name={self.full_name}, type={self.type}, required={self.required}, default={self.default})'
+
+
+db_structure = {
+    'host': SchemeProperty('Host name or IP', str, True,),
+    'port': SchemeProperty('Server port', int, True,),
+    'driver': SchemeProperty('Database type', ['mysql'], True,),
+    'username': SchemeProperty('Database user', str, True,),
+    'password': SchemeProperty('Database user password', str, True,),
+}
+
+root_structure = {
+    'source': SchemeProperty('Source server', dict, True),
+    'target': SchemeProperty('Target server', dict, True),
+    'source_databases': SchemeProperty('Source database name', str, True,),
+    'target_database': SchemeProperty('Target database name', str, False,),
+    'exclude_tables': SchemeProperty('Excluded tables', str, False, default=[],),
+    'just_like_tables': SchemeProperty('Table names', str, False, default=[],),
+    'recreate_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
+    'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
+    'batch_size': SchemeProperty('Batch size', int, False, default=100000,),
+}
 
 
 class Scheme:
-    _structure = {
-        'host': SchemeProperty('Host name or IP', str, True,),
-        'port': SchemeProperty('Server port', int, True,),
-        'driver': SchemeProperty('Database type', ['mysql'], True,),
-        'db': SchemeProperty('Database name', str, True,),
-        'db_pattern': SchemeProperty('Database name pattern', str, True,),
-        'username': SchemeProperty('Database user', str, True,),
-        'password': SchemeProperty('Database user password', str, True,),
-        'excludes': SchemeProperty('Excluded tables', list, False, default=[],),
-        'just_like': SchemeProperty('Table names', list, False, default=[],),
-        'recreate': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
-        'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
-    }
-
     def __init__(self, name, scheme_dict):
         self.name = name
         self._check(scheme_dict)
@@ -53,56 +62,68 @@ class Scheme:
             raise ConfigException(
                 self.name, f'Missing value: {name}. {full_name} is required!')
 
-        if (isinstance(propertyType, list) and value not in propertyType) or type(value) is not propertyType:
+        if value:
+            if isinstance(propertyType, list):
+                if value not in propertyType:
+                    raise ConfigException(
+                        self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+            elif type(value) is not propertyType:
+                raise ConfigException(
+                    self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+
+    def _server_check(self, raw_scheme, server_key):
+        server = raw_scheme[server_key]
+        prototype = root_structure[server_key]
+        if not server:
             raise ConfigException(
-                self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+                self.name, f'{prototype.full_name} is not configured')
+
+        for attr in server:
+            prototype = db_structure.get(attr, None)
+            if prototype is None:
+                raise ConfigException(
+                    self.name, f'Unrecognized configuration option: {attr}')
+            self._property_check(attr, prototype, server[attr])
 
     def _check(self, raw_scheme):
-        source = raw_scheme['source']
-        if not source:
-            raise ConfigException(
-                self.name, 'Source database is not configured')
+        self._server_check(raw_scheme, 'source')
+        self._server_check(raw_scheme, 'target')
 
-        if 'db' in source and 'db_pattern' in source:
-            raise ConfigException(
-                self.name, 'Only one option is allowed: \'db\' or \'db_pattern\'')
-
-        for src_attr in source:
-            prototype = self._structure[src_attr]
-            self._property_check(src_attr, prototype, source[src_attr])
-
-        target = raw_scheme['target']
-        if not target:
-            raise ConfigException(
-                self.name, 'Target database is not configured')
-
-        if 'db' in target and 'db_pattern' in target:
-            raise ConfigException(
-                self.name, 'Only one option is allowed: \'db\' or \'db_pattern\'')
-
-        for target_attr in target:
-            prototype = self._structure[target_attr]
-            self._property_check(target_attr, prototype, source[target_attr])
-
-        if ('db' in target and 'db_pattern' in source) or ('db_pattern' in target and 'db' in source):
-            raise ConfigException(
-                self.name, 'Mischievous Configiration: Either use db or db_pattern for both source and target databases')
-
-        excludes = raw_scheme['excludes']
-        self._property_check('excludes', self._structure['excludes'], excludes)
-
-        just_like = raw_scheme['just_like']
+        source_databases = raw_scheme.get('source_databases', None)
         self._property_check(
-            'just_like', self._structure['just_like'], just_like)
+            'source_databases', root_structure['source_databases'], source_databases)
 
-        recreate = raw_scheme['recreate']
-        self._property_check('recreate', self._structure['recreate'], recreate)
-
-        timestamp_column = raw_scheme['timestamp_column']
+        target_database = raw_scheme.get('target_database', None)
         self._property_check(
-            'timestamp_column', self._structure['timestamp_column'], timestamp_column)
+            'target_database', root_structure['target_database'], target_database)
 
-        return True
+        excludes = raw_scheme.get('exclude_tables', None)
+        self._property_check(
+            'exclude_tables', root_structure['exclude_tables'], excludes)
+
+        just_like = raw_scheme.get('just_like_tables', None)
+        self._property_check(
+            'just_like_tables', root_structure['just_like_tables'], just_like)
+
+        recreate = raw_scheme.get('recreate_tables', None)
+        self._property_check(
+            'recreate_tables', root_structure['recreate_tables'], recreate)
+
+        timestamp_column = raw_scheme.get('timestamp_column', None)
+        prototype = root_structure['timestamp_column']
+        if timestamp_column is not None:
+            self._property_check('timestamp_column',
+                                 prototype, timestamp_column)
+        else:
+            raw_scheme['timestamp_column'] = prototype.default
+
+        batch_size = raw_scheme.get('batch_size', None)
+        prototype = root_structure['batch_size']
+        if batch_size is not None:
+            self._property_check('batch_size',
+                                 prototype, batch_size)
+        else:
+            raw_scheme['batch_size'] = prototype.default
 
 
 class ConfigDict:
@@ -133,25 +154,24 @@ class Config:
                 "source": {
                     "host": string,
                     "port": int,
-                    "driver": "mysql", Only mysql is supported now
-                    "db": string,
-                    "db_pattern": regex,
+                    "driver": string,
                     "username": string,
                     "password": string,
                 },
                 "target": {
                     "host": string,
                     "port": int,
-                    "driver": "mysql", Only mysql is supported now
-                    "db": string,
-                    "db_pattern": regex,
+                    "driver": string,
                     "username": string,
                     "password": string,
                 },
-                "excludes": [regex ...],
-                "just_like": [regex ...],
-                "recreate": [regex ...],
-                "timestamp_column": string | "Time"
+                "source_databases": regex,
+                "target_database": string,
+                "exclude_tables": regex,
+                "just_like_tables": regex,
+                "recreate_tables": regex,
+                "timestamp_column": string | "Time",
+                "batch_size": 100000
             }
         }
     """
