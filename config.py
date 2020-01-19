@@ -1,4 +1,6 @@
+from sqlalchemy import create_engine
 import json
+from helpers import create_connection_string, get_databases_like
 
 
 class ConfigException(Exception):
@@ -29,14 +31,20 @@ db_structure = {
     'password': SchemeProperty('Database user password', str, True,),
 }
 
+source_strucutre = {**db_structure,
+                    'db_pattern': SchemeProperty('Source database name', str, True,),
+                    }
+
+target_structure = {**db_structure,
+                    'db': SchemeProperty('Target database name', str, False,),
+                    }
+
 root_structure = {
-    'source': SchemeProperty('Source server', dict, True),
-    'target': SchemeProperty('Target server', dict, True),
-    'source_databases': SchemeProperty('Source database name', str, True,),
-    'target_database': SchemeProperty('Target database name', str, False,),
+    'source': SchemeProperty('Source server', source_strucutre, True),
+    'target': SchemeProperty('Target server', target_structure, True),
     'exclude_tables': SchemeProperty('Excluded tables', str, False, default=[],),
-    'just_like_tables': SchemeProperty('Table names', str, False, default=[],),
-    'recreate_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
+    'include_tables': SchemeProperty('Table names', str, False, default=[],),
+    'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
     'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
     'batch_size': SchemeProperty('Batch size', int, False, default=100000,),
 }
@@ -67,47 +75,52 @@ class Scheme:
                 if value not in propertyType:
                     raise ConfigException(
                         self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+            elif isinstance(propertyType, dict):
+                if not value:
+                    raise ConfigException(
+                        self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+
+                for attr in propertyType:
+                    prototype = propertyType[attr]
+                    self._property_check(
+                        attr, prototype, value.get(attr, None))
+
             elif type(value) is not propertyType:
                 raise ConfigException(
                     self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
 
-    def _server_check(self, raw_scheme, server_key):
-        server = raw_scheme[server_key]
-        prototype = root_structure[server_key]
-        if not server:
-            raise ConfigException(
-                self.name, f'{prototype.full_name} is not configured')
-
-        for attr in server:
-            prototype = db_structure.get(attr, None)
-            if prototype is None:
-                raise ConfigException(
-                    self.name, f'Unrecognized configuration option: {attr}')
-            self._property_check(attr, prototype, server[attr])
-
     def _check(self, raw_scheme):
-        self._server_check(raw_scheme, 'source')
-        self._server_check(raw_scheme, 'target')
-
-        source_databases = raw_scheme.get('source_databases', None)
         self._property_check(
-            'source_databases', root_structure['source_databases'], source_databases)
+            'source', root_structure['source'], raw_scheme['source'])
 
-        target_database = raw_scheme.get('target_database', None)
-        self._property_check(
-            'target_database', root_structure['target_database'], target_database)
+        source = raw_scheme['source']
+        src_conn_string = create_connection_string(
+            source.driver, source.host, source.port, source.username, source.password)
+        src_engine = create_engine(src_conn_string)
+        src_databases = get_databases_like(src_engine, source.db_pattern)
 
-        excludes = raw_scheme.get('exclude_tables', None)
-        self._property_check(
-            'exclude_tables', root_structure['exclude_tables'], excludes)
+        if len(src_databases) == 0:
+            raise ConfigException(
+                self.name, f'Source database pattern matches 0 databases')
 
-        just_like = raw_scheme.get('just_like_tables', None)
         self._property_check(
-            'just_like_tables', root_structure['just_like_tables'], just_like)
+            'target', root_structure['target'], raw_scheme['target'])
 
-        recreate = raw_scheme.get('recreate_tables', None)
+        if 'db' in raw_scheme['target'] and len(src_databases) != 1:
+            raise ConfigException(
+                self.scheme, f'Source regex {source.db_pattern} matches {len(src_databases)} databases in target. "target.db" option should not be there')
+
+        exclude_tables = raw_scheme.get('exclude_tables', None)
         self._property_check(
-            'recreate_tables', root_structure['recreate_tables'], recreate)
+            'exclude_tables', root_structure['exclude_tables'], exclude_tables)
+
+        include_tables = raw_scheme.get('include_tables', None)
+        self._property_check(
+            'include_tables', root_structure['include_tables'], include_tables)
+
+        dynamic_tables = raw_scheme.get('dynamic_tables', None)
+        self._property_check(
+            'dynamic_tables', root_structure['dynamic_tables'], dynamic_tables)
 
         timestamp_column = raw_scheme.get('timestamp_column', None)
         prototype = root_structure['timestamp_column']
@@ -155,6 +168,7 @@ class Config:
                     "host": string,
                     "port": int,
                     "driver": string,
+                    "db_pattern": regex,
                     "username": string,
                     "password": string,
                 },
@@ -162,16 +176,15 @@ class Config:
                     "host": string,
                     "port": int,
                     "driver": string,
+                    "db"?: string,
                     "username": string,
                     "password": string,
                 },
-                "source_databases": regex,
-                "target_database": string,
-                "exclude_tables": regex,
-                "just_like_tables": regex,
-                "recreate_tables": regex,
-                "timestamp_column": string | "Time",
-                "batch_size": 100000
+                "exclude_tables"?: regex,
+                "include_tables"?: regex,
+                "dynamic_tables"?: regex,
+                "timestamp_column"?: string | "Time",
+                "batch_size"?: 100000
             }
         }
     """

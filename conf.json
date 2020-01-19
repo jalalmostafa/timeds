@@ -1,0 +1,20 @@
+{
+    "repl_scheme": {
+        "source": {
+            "host": "adei.crd.yerphi.am",
+            "port": 3306,
+            "driver": "mysql",
+            "username": "read",
+            "password": "read",
+            "db_pattern": "^raw$"
+        },
+        "target": {
+            "host": "localhost",
+            "port": 3306,
+            "driver": "mysql",
+            "username": "user",
+            "password": "Symmetricds@2",
+            "db": "asdasd"
+        }
+    }
+}
