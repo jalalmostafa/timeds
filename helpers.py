@@ -1,11 +1,12 @@
 import re
 from sqlalchemy import create_engine, inspect
+from connectors import connectors
 
 def create_connection_string(driver, host, port, username, password, db=''):
     if not db:
-        return f'{driver}://{username}:{password}@{host}:{port}'
+        return f'{driver}+{connectors[driver]}://{username}:{password}@{host}:{port}/INFORMATION_SCHEMA'
 
-    return f'{driver}://{username}:{password}@{host}:{port}/{db}'
+    return f'{driver}+{connectors[driver]}://{username}:{password}@{host}:{port}/{db}'
 
 
 def get_databases_like(engine, regex):

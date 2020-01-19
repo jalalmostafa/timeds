@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine
 import json
+from connectors import connectors, supported_dbs
 from helpers import create_connection_string, get_databases_like
 
 
@@ -26,7 +27,7 @@ class SchemeProperty:
 db_structure = {
     'host': SchemeProperty('Host name or IP', str, True,),
     'port': SchemeProperty('Server port', int, True,),
-    'driver': SchemeProperty('Database type', ['mysql'], True,),
+    'driver': SchemeProperty('Database type', supported_dbs, True,),
     'username': SchemeProperty('Database user', str, True,),
     'password': SchemeProperty('Database user password', str, True,),
 }
@@ -97,7 +98,9 @@ class Scheme:
         src_conn_string = create_connection_string(
             source['driver'], source['host'], source['port'], source['username'], source['password'])
         src_engine = create_engine(src_conn_string)
+        src_conn = src_engine.connect()
         src_databases = get_databases_like(src_engine, source.db_pattern)
+        src_conn.close()
 
         if len(src_databases) == 0:
             raise ConfigException(
