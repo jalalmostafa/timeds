@@ -95,7 +95,7 @@ class Scheme:
 
         source = raw_scheme['source']
         src_conn_string = create_connection_string(
-            source.driver, source.host, source.port, source.username, source.password)
+            source['driver'], source['host'], source['port'], source['username'], source['password'])
         src_engine = create_engine(src_conn_string)
         src_databases = get_databases_like(src_engine, source.db_pattern)
 
