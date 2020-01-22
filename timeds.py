@@ -1,9 +1,9 @@
 import argparse
 import sys
 import config as conf
-#from pid.decorator import pidfile
 from log import Log
 from replicator import SchemeReplicator
+# from pid.decorator import pidfile
 
 # @pidfile('timeds.pid')
 
@@ -17,14 +17,21 @@ def main():
                         help='Verbose Mode. Print config, etc')
     args = parser.parse_args()
     log = Log()
+    replicators = []
+
     try:
         config = conf.Config(args.config)
         if args.v:
             print(config)
 
-        # for scheme in config:
-        #     scheme = SchemeReplicator(scheme, config[scheme])
-        #     scheme.run()
+        for scheme in config:
+            scheme = SchemeReplicator(scheme, config[scheme])
+            reps = scheme.run()
+            replicators.extend(reps)
+
+        for rep in replicators:
+            rep.join()
+
     except conf.ConfigException as e:
         log.error(e)
 

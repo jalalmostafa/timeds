@@ -158,3 +158,5 @@ class SchemeReplicator:
                                           exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
                 self.replicators.append(replicator)
                 replicator.start()
+
+        return self.replicators
