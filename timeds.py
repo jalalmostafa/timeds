@@ -29,6 +29,7 @@ def main():
             reps = scheme.run()
             replicators.extend(reps)
 
+        log.info(f'Started for {len(replicators)} database(s)...')
         for rep in replicators:
             rep.join()
 

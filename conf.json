@@ -18,7 +18,8 @@
             "source": "^raw$",
             "target": "asec_views",
             "naming_scheme": "exact",
-            "dynamic_tables": "^.*_LIST$"
+            "dynamic_tables": "^.*_LIST$",
+            "replicate_view": true
         }]
     }
 }

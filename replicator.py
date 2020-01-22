@@ -28,9 +28,10 @@ class DbReplicator(th.Thread):
             create_database(self.trg_engine.url)
 
     def _to_target_table(self, target_metadata, src_table):
-        table = Table(src_table.name, target_metadata, *
-                      src_table.columns, keep_existing=True)
-        return table
+        if src_table.name in target_metadata.tables:
+            return target_metadata.tables[src_table.name]
+        
+        return src_table.tometadata(target_metadata)
 
     def _run_transaction(self, trg_conn, stmt, finish_msg, stmt_params=None):
         with trg_conn.begin() as transaction:
@@ -57,9 +58,9 @@ class DbReplicator(th.Thread):
         for src_table in dynamic_tables:
             table = self._to_target_table(target_metadata, src_table)
             if table.exists():
-                table.delete(None)
+                table.delete(None).execute()
             else:
-                table.create(checkfirst=True)
+                table.create()
 
             select_all_query = src_table.select()
             insert_stmt = table.insert(None)
@@ -88,17 +89,21 @@ class DbReplicator(th.Thread):
                     break
 
                 stmt_msg = f'{len(values)} record(s) were inserted into the time table {self.trg_db}.{table.name}'
-                self._run_transaction(trg_conn, insert_stmt, stmt_msg, stmt_params=values)
+                self._run_transaction(
+                    trg_conn, insert_stmt, stmt_msg, stmt_params=values)
 
     def run(self):
         with self.src_engine.connect() as src_connection, self.trg_engine.connect() as trg_connection:
 
             src_metadata = MetaData(bind=self.src_engine,)
+            self.log.info(
+                f'Reflecting source database {self.src_engine.url}', scheme=self.scheme)
             src_metadata.reflect(views=True)
-
             src_views = inspect(self.src_engine).get_view_names()
 
             trg_metadata = MetaData(bind=self.trg_engine,)
+            self.log.info(
+                f'Reflecting to target database {self.src_engine.url}', scheme=self.scheme)
             trg_metadata.reflect(views=True)
 
             include_tables = src_metadata.tables.values()
@@ -143,14 +148,23 @@ class SchemeReplicator:
         self.config = config
         self.scheme = scheme
 
+    def _get_db_name(self, db_conf, original):
+        if not db_conf.naming_scheme or db_conf.naming_scheme == 'original':
+            return original
+
+        if db_conf.naming_scheme == 'exact':
+            return db_conf.target
+
+        if db_conf.naming_scheme == 'replace':
+            return re.sub(db_conf.source, db_conf.target, original)
+
     def run(self):
         replicators = []
         for db_conf in self.config.databases:
             main_engine = get_engine(self.config.source)
             dbs = get_databases_like(main_engine, db_conf.source)
             for db in dbs:
-                trg_db = re.sub(db_conf.source, db_conf.target,
-                                db) if db_conf.target else db_conf.source
+                trg_db = self._get_db_name(db_conf, db)
 
                 replicator = DbReplicator(self.scheme, self.config, db, trg_db, include_tables=db_conf.include_tables,
                                           exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
