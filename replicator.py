@@ -88,7 +88,7 @@ class DbReplicator(th.Thread):
                     if not values:
                         break
 
-                    stmt_msg = f'{len(values)} record(s) were inserted into a dynamic table {self.trg_db}.{table.name}'
+                    stmt_msg = f'{len(values)} record(s) were inserted into a time table {self.trg_db}.{table.name}'
                     self._run_transaction(
                         trg_conn, insert_stmt, stmt_msg, stmt_params=values)
 
@@ -144,9 +144,9 @@ class SchemeReplicator:
     def __init__(self, scheme, config):
         self.config = config
         self.scheme = scheme
-        self.replicators = []
 
     def run(self):
+        replicators = []
         for db_conf in self.config.databases:
             main_engine = get_engine(self.config.source)
             dbs = get_databases_like(main_engine, db_conf.source)
@@ -156,7 +156,7 @@ class SchemeReplicator:
                 replicator = DbReplicator(self.scheme, self.config, db,
                                           trg_db=trg_db, include_tables=db_conf.include_tables,
                                           exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
-                self.replicators.append(replicator)
+                replicators.append(replicator)
                 replicator.start()
 
-        return self.replicators
+        return replicators

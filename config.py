@@ -58,7 +58,7 @@ class Scheme:
         self.conf = ConfigDict(conf)
 
     def __getattr__(self, name):
-        return self.conf
+        return self.conf[name]
 
     def __str__(self):
         return '\n'.join([f'        {name}:\n{self.conf[name]}' for name in self.conf])
@@ -108,9 +108,13 @@ class Scheme:
 class ConfigDict:
     def __init__(self, data):
         self.dict = data
-        for key in self.dict:
-            if type(self.dict[key]) is dict:
-                self.dict[key] = ConfigDict(self.dict[key])
+        for key, value in self.dict.items():
+            if isinstance(value, dict):
+                self.dict[key] = ConfigDict(value)
+            elif isinstance(value, list):
+                for idx, elm in enumerate(value):
+                    if isinstance(elm, dict):
+                        self.dict[key][idx] = ConfigDict(elm)
 
     def __iter__(self):
         return iter(self.dict)
@@ -160,10 +164,10 @@ class Config:
 
     def __init__(self, file_name):
         with open(file_name) as conf_file:
-            self.conf = json.load(conf_file) or []
-            for scheme_name in self.conf:
-                self.conf[scheme_name] = Scheme(
-                    scheme_name, self.conf[scheme_name])
+            conf = json.load(conf_file) or {}
+            self.conf = {}
+            for scheme_name in conf:
+                self.conf[scheme_name] = Scheme(scheme_name, conf[scheme_name])
 
     def __iter__(self):
         return iter(self.conf)
@@ -172,4 +176,4 @@ class Config:
         return self.conf[key]
 
     def __str__(self):
-        return "Replication Schemes:\n" + ''.join([f"    {name}:\n{self.conf[name]}" for name in self.conf])
+        return "Replication Schemes:" + '\n'.join([f"    {name}:\n{self.conf[name]}" for name in self.conf])

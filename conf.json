@@ -1,5 +1,5 @@
 {
-    "repl_scheme": {
+    "repl_raw": {
         "source": {
             "host": "adei.crd.yerphi.am",
             "port": 3306,
@@ -16,7 +16,27 @@
         },
         "databases": [{
             "source": "^raw$",
-            "target": "asec_\\1"
+            "target": "asec_\\\\1"
+        }]
+    },
+    "repl_views": {
+        "source": {
+            "host": "adei.crd.yerphi.am",
+            "port": 3306,
+            "driver": "mysql",
+            "username": "read",
+            "password": "read"
+        },
+        "target": {
+            "host": "localhost",
+            "port": 3306,
+            "driver": "mysql",
+            "username": "user",
+            "password": "Symmetricds@2"
+        },
+        "databases": [{
+            "source": "^raw$",
+            "target": "asec_\\\\1"
         }]
     }
 }
