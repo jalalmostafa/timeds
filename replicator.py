@@ -2,7 +2,7 @@ import re
 import threading as th
 from helpers import get_engine, get_databases_like
 from log import Log
-from sqlalchemy import Table, MetaData, inspect, func
+from sqlalchemy import Table, MetaData, inspect, func, text
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy_views import CreateView
 
@@ -47,12 +47,14 @@ class DbReplicator(th.Thread):
     def _do_views(self, trg_conn, target_metadata, views):
         for v in views:
             trg_view = self._to_target_table(target_metadata, v)
-            view_definition = inspect(self.src_engine) \
-                .get_view_definition(v.name)
-
-            stmt = CreateView(trg_view, view_definition)
-            stmt_msg = f'View {v.name} was created in {self.trg_db}'
-            self._run_transaction(trg_conn, stmt, stmt_msg,)
+            if not trg_view.exists():
+                view_definition = inspect(self.src_engine) \
+                    .get_view_definition(v.name)
+                view_definition = view_definition[view_definition.lower().index('select'):]
+                print(view_definition)
+                stmt = CreateView(trg_view, text(view_definition))
+                stmt_msg = f'View {v.name} was created in {self.trg_db}'
+                self._run_transaction(trg_conn, stmt, stmt_msg,)
 
     def _do_dynamic(self, src_conn, trg_conn, target_metadata, dynamic_tables):
         for src_table in dynamic_tables:
@@ -100,7 +102,7 @@ class DbReplicator(th.Thread):
                 f'Reflecting source database {self.src_engine.url}', scheme=self.scheme)
             src_metadata.reflect(views=True)
             src_views = inspect(self.src_engine).get_view_names()
-
+            
             trg_metadata = MetaData(bind=self.trg_engine,)
             self.log.info(
                 f'Reflecting to target database {self.src_engine.url}', scheme=self.scheme)
@@ -112,7 +114,7 @@ class DbReplicator(th.Thread):
 
             if self.replicate_views:
                 views = [src_metadata.tables[tab]
-                         for tab in src_metadata.tables if tab in views]
+                         for tab in src_metadata.tables if tab in src_views]
                 self._do_views(trg_connection, trg_metadata, views)
 
             if self.include_tables:
@@ -165,7 +167,6 @@ class SchemeReplicator:
             dbs = get_databases_like(main_engine, db_conf.source)
             for db in dbs:
                 trg_db = self._get_db_name(db_conf, db)
-
                 replicator = DbReplicator(self.scheme, self.config, db, trg_db, include_tables=db_conf.include_tables,
                                           exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
                 replicators.append(replicator)
