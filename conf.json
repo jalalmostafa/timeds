@@ -5,16 +5,18 @@
             "port": 3306,
             "driver": "mysql",
             "username": "read",
-            "password": "read",
-            "db_pattern": "^raw$"
+            "password": "read"
         },
         "target": {
             "host": "localhost",
             "port": 3306,
             "driver": "mysql",
             "username": "user",
-            "password": "Symmetricds@2",
-            "db": "asdasd"
-        }
+            "password": "Symmetricds@2"
+        },
+        "databases": [{
+            "source": "^raw$",
+            "target": "asec_\\1"
+        }]
     }
 }

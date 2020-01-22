@@ -1,5 +1,5 @@
-from sqlalchemy import create_engine
 import json
+from sqlalchemy import create_engine
 from connectors import connectors, supported_dbs
 from helpers import create_connection_string, get_databases_like
 
@@ -14,17 +14,18 @@ class ConfigException(Exception):
 
 
 class SchemeProperty:
-    def __init__(self, full_name, propertyType, required, default=''):
+    def __init__(self, full_name, propertyType, required, child_type='', default=''):
         self.full_name = full_name
         self.type = propertyType
         self.required = required
         self.default = default
+        self.child_type = child_type
 
     def __str__(self):
         return f'(full_name={self.full_name}, type={self.type}, required={self.required}, default={self.default})'
 
 
-db_structure = {
+host_structure = {
     'host': SchemeProperty('Host name or IP', str, True,),
     'port': SchemeProperty('Server port', int, True,),
     'driver': SchemeProperty('Database type', supported_dbs, True,),
@@ -32,38 +33,41 @@ db_structure = {
     'password': SchemeProperty('Database user password', str, True,),
 }
 
-source_strucutre = {**db_structure,
-                    'db_pattern': SchemeProperty('Source database name', str, True,),
-                    }
-
-target_structure = {**db_structure,
-                    'db': SchemeProperty('Target database name', str, False,),
-                    }
-
-root_structure = {
-    'source': SchemeProperty('Source server', source_strucutre, True),
-    'target': SchemeProperty('Target server', target_structure, True),
+db_structure = {
+    'source': SchemeProperty('Source database name', str, True,),
+    'target': SchemeProperty('Target database name', str, False,),
+    'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
     'exclude_tables': SchemeProperty('Excluded tables', str, False, default=[],),
     'include_tables': SchemeProperty('Table names', str, False, default=[],),
     'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
-    'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
+    'replicate_views': SchemeProperty('Views replication', bool, False, default=False,),
+}
+
+root_structure = {
+    'source': SchemeProperty('Source server', host_structure, True),
+    'target': SchemeProperty('Target server', host_structure, True),
     'batch_size': SchemeProperty('Batch size', int, False, default=100000,),
+    'databases': SchemeProperty('Source and target databases', list, True, child_type=SchemeProperty('database', db_structure, True))
 }
 
 
 class Scheme:
     def __init__(self, name, scheme_dict):
         self.name = name
-        self._check(scheme_dict)
-        self.conf = ConfigDict(scheme_dict)
+        conf = self._check(scheme_dict)
+        self.conf = ConfigDict(conf)
 
     def __getattr__(self, name):
         return self.conf
 
     def __str__(self):
-        return ''.join([f'        {name}: {self.conf[name]}\n' for name in self.conf])
+        return '\n'.join([f'        {name}:\n{self.conf[name]}' for name in self.conf])
 
     def _property_check(self, name, prototype, value):
+
+        if not prototype:
+            raise ConfigException(self.name, f'Unrecognized option {name}')
+
         full_name = prototype.full_name
         propertyType = prototype.type
 
@@ -82,64 +86,23 @@ class Scheme:
                         self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
 
                 for attr in propertyType:
-                    prototype = propertyType[attr]
-                    self._property_check(
-                        attr, prototype, value.get(attr, None))
-
+                    value[attr] = self._property_check(
+                        attr, propertyType.get(attr, None), value.get(attr, None))
             elif type(value) is not propertyType:
                 raise ConfigException(
                     self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+            elif prototype.child_type:
+                for i, v in enumerate(value):
+                    value[i] = self._property_check(
+                        name, prototype.child_type, v)
+            return value
+
+        return prototype.default
 
     def _check(self, raw_scheme):
-        self._property_check(
-            'source', root_structure['source'], raw_scheme['source'])
-
-        source = raw_scheme['source']
-        src_conn_string = create_connection_string(
-            source['driver'], source['host'], source['port'], source['username'], source['password'])
-        src_engine = create_engine(src_conn_string)
-        src_conn = src_engine.connect()
-        src_databases = get_databases_like(src_engine, source.db_pattern)
-        src_conn.close()
-
-        if len(src_databases) == 0:
-            raise ConfigException(
-                self.name, f'Source database pattern matches 0 databases')
-
-        self._property_check(
-            'target', root_structure['target'], raw_scheme['target'])
-
-        if 'db' in raw_scheme['target'] and len(src_databases) != 1:
-            raise ConfigException(
-                self.scheme, f'Source regex {source.db_pattern} matches {len(src_databases)} databases in target. "target.db" option should not be there')
-
-        exclude_tables = raw_scheme.get('exclude_tables', None)
-        self._property_check(
-            'exclude_tables', root_structure['exclude_tables'], exclude_tables)
-
-        include_tables = raw_scheme.get('include_tables', None)
-        self._property_check(
-            'include_tables', root_structure['include_tables'], include_tables)
-
-        dynamic_tables = raw_scheme.get('dynamic_tables', None)
-        self._property_check(
-            'dynamic_tables', root_structure['dynamic_tables'], dynamic_tables)
-
-        timestamp_column = raw_scheme.get('timestamp_column', None)
-        prototype = root_structure['timestamp_column']
-        if timestamp_column is not None:
-            self._property_check('timestamp_column',
-                                 prototype, timestamp_column)
-        else:
-            raw_scheme['timestamp_column'] = prototype.default
-
-        batch_size = raw_scheme.get('batch_size', None)
-        prototype = root_structure['batch_size']
-        if batch_size is not None:
-            self._property_check('batch_size',
-                                 prototype, batch_size)
-        else:
-            raw_scheme['batch_size'] = prototype.default
+        return {
+            k: self._property_check(k, root_structure[k], raw_scheme.get(k, None)) for k in root_structure
+        }
 
 
 class ConfigDict:
@@ -159,7 +122,7 @@ class ConfigDict:
         return self.dict[name]
 
     def __str__(self):
-        return ''.join([f'{name}: {self.dict[name]}\n' for name in self.dict])
+        return '\n'.join([f'            {name}: {self.dict[name]}' for name in self.dict])
 
 
 class Config:
@@ -171,7 +134,6 @@ class Config:
                     "host": string,
                     "port": int,
                     "driver": string,
-                    "db_pattern": regex,
                     "username": string,
                     "password": string,
                 },
@@ -179,14 +141,18 @@ class Config:
                     "host": string,
                     "port": int,
                     "driver": string,
-                    "db"?: string,
                     "username": string,
                     "password": string,
                 },
-                "exclude_tables"?: regex,
-                "include_tables"?: regex,
-                "dynamic_tables"?: regex,
-                "timestamp_column"?: string | "Time",
+                "databases": [{
+                    "source": regex,
+                    "target"?: string,
+                    "timestamp_column"?: string | "Time",
+                    "exclude_tables"?: regex,
+                    "include_tables"?: regex,
+                    "dynamic_tables"?: regex,
+                    "replicate_views"?: boolean
+                }],
                 "batch_size"?: 100000
             }
         }
