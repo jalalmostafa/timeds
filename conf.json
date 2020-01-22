@@ -16,27 +16,9 @@
         },
         "databases": [{
             "source": "^raw$",
-            "target": "asec_\\\\1"
-        }]
-    },
-    "repl_views": {
-        "source": {
-            "host": "adei.crd.yerphi.am",
-            "port": 3306,
-            "driver": "mysql",
-            "username": "read",
-            "password": "read"
-        },
-        "target": {
-            "host": "localhost",
-            "port": 3306,
-            "driver": "mysql",
-            "username": "user",
-            "password": "Symmetricds@2"
-        },
-        "databases": [{
-            "source": "^raw$",
-            "target": "asec_\\\\1"
+            "target": "asec_views",
+            "naming_scheme": "exact",
+            "dynamic_tables": "^.*_LIST$"
         }]
     }
 }

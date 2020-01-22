@@ -39,8 +39,9 @@ db_structure = {
     'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
     'exclude_tables': SchemeProperty('Excluded tables', str, False, default=[],),
     'include_tables': SchemeProperty('Table names', str, False, default=[],),
-    'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', list, False, default=[],),
+    'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', str, False, default=[],),
     'replicate_views': SchemeProperty('Views replication', bool, False, default=False,),
+    'naming_scheme': SchemeProperty('Target database naming scheme', ['replace', 'exact', 'original'], False, default='original',),
 }
 
 root_structure = {
@@ -137,14 +138,14 @@ class Config:
                 "source": {
                     "host": string,
                     "port": int,
-                    "driver": string,
+                    "driver": "mysql",
                     "username": string,
                     "password": string,
                 },
                 "target": {
                     "host": string,
                     "port": int,
-                    "driver": string,
+                    "driver": "mysql",
                     "username": string,
                     "password": string,
                 },
@@ -152,6 +153,7 @@ class Config:
                     "source": regex,
                     "target"?: string,
                     "timestamp_column"?: string | "Time",
+                    "target_name_type"?: "replace" | "exact",
                     "exclude_tables"?: regex,
                     "include_tables"?: regex,
                     "dynamic_tables"?: regex,

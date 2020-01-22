@@ -8,13 +8,14 @@ from sqlalchemy_views import CreateView
 
 
 class DbReplicator(th.Thread):
-    def __init__(self, scheme, config, src_db, trg_db='',
+    def __init__(self, scheme, config, src_db, trg_db,
                  include_tables=[], exclude_tables=[], dynamic_tables=[], replicate_views=False, timestamp_column='Time'):
+        super().__init__()
         self.scheme = scheme
         self.log = Log()
         self.scheme_conf = config
         self.src_db = src_db
-        self.trg_db = trg_db if trg_db else src_db
+        self.trg_db = trg_db
         self.include_tables = include_tables
         self.exclude_tables = exclude_tables
         self.dynamic_tables = dynamic_tables
@@ -27,8 +28,8 @@ class DbReplicator(th.Thread):
             create_database(self.trg_engine.url)
 
     def _to_target_table(self, target_metadata, src_table):
-        table = Table(src_table.name, target_metadata,
-                      src_table.columns, keep_existing=True, extend_existing=True)
+        table = Table(src_table.name, target_metadata, *
+                      src_table.columns, keep_existing=True)
         return table
 
     def _run_transaction(self, trg_conn, stmt, finish_msg, stmt_params=None):
@@ -62,15 +63,14 @@ class DbReplicator(th.Thread):
 
             select_all_query = src_table.select()
             insert_stmt = table.insert(None)
-            with src_conn.execute(select_all_query) as result:
-                values = result.fetchall()
-                stmt_msg = f'{len(values)} record(s) were inserted into a dynamic table {self.trg_db}.{table.name}'
-                self._run_transaction(
-                    trg_conn, insert_stmt, stmt_msg, stmt_params=values)
+            values = src_conn.execute(select_all_query).fetchall()
+            stmt_msg = f'{len(values)} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}'
+            self._run_transaction(trg_conn, insert_stmt,
+                                  stmt_msg, stmt_params=values)
 
     def _do_include(self, src_conn, trg_conn, target_metadata, time_tables):
         for src_table in time_tables:
-            table = self._to_target_table(target_metadata, table)
+            table = self._to_target_table(target_metadata, src_table)
             table.create(checkfirst=True)
 
             insert_stmt = table.insert(None)
@@ -83,14 +83,12 @@ class DbReplicator(th.Thread):
                     .select(whereclause=src_table.c[self.timestamp_column] > max_time, limit=self.scheme_conf.batch_size) \
                     if max_time else src_table.select(limit=self.scheme_conf.batch_size)
 
-                with src_conn.execute(data_query) as result:
-                    values = result.fetchall()
-                    if not values:
-                        break
+                values = src_conn.execute(data_query).fetchall()
+                if not values:
+                    break
 
-                    stmt_msg = f'{len(values)} record(s) were inserted into a time table {self.trg_db}.{table.name}'
-                    self._run_transaction(
-                        trg_conn, insert_stmt, stmt_msg, stmt_params=values)
+                stmt_msg = f'{len(values)} record(s) were inserted into the time table {self.trg_db}.{table.name}'
+                self._run_transaction(trg_conn, insert_stmt, stmt_msg, stmt_params=values)
 
     def run(self):
         with self.src_engine.connect() as src_connection, self.trg_engine.connect() as trg_connection:
@@ -115,17 +113,17 @@ class DbReplicator(th.Thread):
             if self.include_tables:
                 include_tables = [src_metadata.tables[tab]
                                   for tab in src_metadata.tables
-                                  if re.match(self.include_tables, tab.name)]
+                                  if re.match(self.include_tables, tab)]
 
             if self.dynamic_tables:
                 dynamic_tables = [src_metadata.tables[tab]
                                   for tab in src_metadata.tables
-                                  if re.match(self.dynamic_tables, tab.name)]
+                                  if re.match(self.dynamic_tables, tab)]
 
             if self.exclude_tables:
                 exclude_tables = [src_metadata.tables[tab]
                                   for tab in src_metadata.tables
-                                  if re.match(self.exclude_tables, tab.name)]
+                                  if re.match(self.exclude_tables, tab)]
 
             include_tables = [table for table in include_tables
                               if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
@@ -151,10 +149,10 @@ class SchemeReplicator:
             main_engine = get_engine(self.config.source)
             dbs = get_databases_like(main_engine, db_conf.source)
             for db in dbs:
-                if db_conf.target:
-                    trg_db = re.sub(db_conf.source, db_conf.target, db)
-                replicator = DbReplicator(self.scheme, self.config, db,
-                                          trg_db=trg_db, include_tables=db_conf.include_tables,
+                trg_db = re.sub(db_conf.source, db_conf.target,
+                                db) if db_conf.target else db_conf.source
+
+                replicator = DbReplicator(self.scheme, self.config, db, trg_db, include_tables=db_conf.include_tables,
                                           exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
                 replicators.append(replicator)
                 replicator.start()
