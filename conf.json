@@ -17,9 +17,15 @@
         "databases": [{
             "source": "^raw$",
             "target": "asec_views",
-            "naming_scheme": "exact",
+            "naming_strategy": "exact",
             "dynamic_tables": "^.*_LIST$",
             "replicate_views": true
+        }, {
+            "source": "^asec_raw$",
+            "naming_strategy": "original",
+            "dynamic_tables": "^.*_LIST$",
+            "replicate_views": true,
+            "include_tables": "^default_sevan_jnu$"
         }]
     }
 }

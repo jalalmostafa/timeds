@@ -6,8 +6,6 @@ from replicator import SchemeReplicator
 # from pid.decorator import pidfile
 
 # @pidfile('timeds.pid')
-
-
 def main():
     parser = argparse.ArgumentParser(
         description='Replicate databases using Timestamps in SQL Tables')
