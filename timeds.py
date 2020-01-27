@@ -3,9 +3,7 @@ import sys
 import config as conf
 from log import Log
 from replicator import SchemeReplicator
-from pid.decorator import pidfile
 
-@pidfile('timeds.pid', piddir='/tmp')
 def main():
     parser = argparse.ArgumentParser(
         description='Replicate databases using Timestamps in SQL Tables')
