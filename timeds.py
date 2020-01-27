@@ -11,6 +11,8 @@ def main():
                         action='store', help='Set replication configuration file')
     parser.add_argument('-v', action='store_true',
                         help='Verbose Mode. Print config, etc')
+    parser.add_argument('--only-dynamic', action='store_true', help='Only replicate dynamic tables')
+
     args = parser.parse_args()
     log = Log()
     replicators = []
@@ -21,7 +23,7 @@ def main():
             print(config)
 
         for scheme in config:
-            scheme = SchemeReplicator(scheme, config[scheme])
+            scheme = SchemeReplicator(scheme, config[scheme], only_dynamic=args.only_dynamic)
             reps = scheme.run()
             replicators.extend(reps)
 
