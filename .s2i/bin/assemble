@@ -1,0 +1,4 @@
+#! /bin/sh
+
+mkdir /opt/app-root/logs
+chmod 777 /opt/app-root/logs
