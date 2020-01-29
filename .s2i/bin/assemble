@@ -1,4 +1,4 @@
 #! /bin/sh
-
+${STI_SCRIPTS_PATH}/assemble
 mkdir /opt/app-root/logs
 chmod 777 /opt/app-root/logs
