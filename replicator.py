@@ -2,7 +2,7 @@ import re
 import threading as th
 from helpers import get_engine, get_databases_like
 from log import Log
-from sqlalchemy import Table, MetaData, inspect, func, text, select
+from sqlalchemy import MetaData, inspect, func, text, select
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy_views import CreateView
 
@@ -63,22 +63,30 @@ class DbReplicator(th.Thread):
         for src_table in dynamic_tables:
             table = self._to_target_table(target_metadata, src_table)
             if table.exists():
-                table.delete(None).execute()
-            else:
-                table.create()
+                table.drop()
 
-            values = src_table.select().execute().fetchall()
-            insert_stmt = table.insert(None)
-            stmt_msg = f'{len(values)} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}'
-            self._run_transaction(trg_conn, insert_stmt,
-                                  stmt_msg, stmt_params=values)
+            table.create()
+
+            values = src_table.select().execute()
+            with trg_conn.begin() as transaction:
+                try:
+                    for v in values:
+                        stmt = table.insert(None, values=v)
+                        trg_conn.execute(stmt,)
+                except Exception as e:
+                    transaction.rollback()
+                    self.log.error(e, scheme=self.scheme)
+                else:
+                    transaction.commit()
+                    self.log.info(
+                        f'{len(values)} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}',
+                        scheme=self.scheme)
 
     def _do_include(self, trg_conn, target_metadata, time_tables):
         for src_table in time_tables:
             table = self._to_target_table(target_metadata, src_table)
             table.create(checkfirst=True)
 
-            insert_stmt = table.insert(None)
             batch_nb = 0
             count = -1
             while True:
@@ -89,14 +97,26 @@ class DbReplicator(th.Thread):
                     .select(offset=count, limit=self.scheme_conf.batch_size) \
                     if count else src_table.select(limit=self.scheme_conf.batch_size)
 
-                values = data_query.execute().fetchall()
-                if not values:
+                values = data_query.execute()
+
+                if not values.rowcount:
                     break
+
+                with trg_conn.begin() as transaction:
+                    try:
+                        for v in values:
+                            stmt = table.insert(None, values=v)
+                            trg_conn.execute(stmt,)
+                    except Exception as e:
+                        transaction.rollback()
+                        self.log.error(e, scheme=self.scheme)
+                    else:
+                        transaction.commit()
+                        self.log.info(
+                            f'Batch #{batch_nb}: {len(values)} record(s) were inserted into the table {self.trg_db}.{table.name} at offset {count}', scheme=self.scheme)
+
                 batch_nb += 1
-                stmt_msg = f'Batch #{batch_nb}: {len(values)} record(s) were inserted into the table {self.trg_db}.{table.name} at offset {count}'
-                self._run_transaction(
-                    trg_conn, insert_stmt, stmt_msg, stmt_params=values)
-                count += len(values)
+                count += values.rowcount
 
     def run(self):
         with self.trg_engine.connect() as trg_connection:
