@@ -64,14 +64,14 @@ class DbReplicator(th.Thread):
             table = self._to_target_table(target_metadata, src_table)
             if table.exists():
                 table.drop()
-
+            self.log.info(f'(re)-creating dynamic table {self.trg_db}.{table.name}')
             table.create()
 
             values = src_table.select().execute()
             with trg_conn.begin() as transaction:
                 try:
                     for v in values:
-                        stmt = table.insert(None, values=v)
+                        stmt = table.insert(None).values(v)
                         trg_conn.execute(stmt,)
                 except Exception as e:
                     transaction.rollback()
@@ -79,7 +79,7 @@ class DbReplicator(th.Thread):
                 else:
                     transaction.commit()
                     self.log.info(
-                        f'{len(values)} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}',
+                        f'{values.rowcount} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}',
                         scheme=self.scheme)
 
     def _do_include(self, trg_conn, target_metadata, time_tables):
@@ -105,7 +105,7 @@ class DbReplicator(th.Thread):
                 with trg_conn.begin() as transaction:
                     try:
                         for v in values:
-                            stmt = table.insert(None, values=v)
+                            stmt = table.insert(None).values(v)
                             trg_conn.execute(stmt,)
                     except Exception as e:
                         transaction.rollback()
@@ -113,7 +113,7 @@ class DbReplicator(th.Thread):
                     else:
                         transaction.commit()
                         self.log.info(
-                            f'Batch #{batch_nb}: {len(values)} record(s) were inserted into the table {self.trg_db}.{table.name} at offset {count}', scheme=self.scheme)
+                            f'Batch #{batch_nb}: {values.rowcount} record(s) were inserted into the table {self.trg_db}.{table.name} at offset {count}', scheme=self.scheme)
 
                 batch_nb += 1
                 count += values.rowcount
@@ -143,6 +143,7 @@ class DbReplicator(th.Thread):
                 dynamic_tables = [include_tables[tab]
                                   for tab in include_tables
                                   if re.match(self.dynamic_tables, tab) and tab not in src_views]
+                self._do_dynamic(trg_connection, trg_metadata, dynamic_tables)
                 return
 
             if self.replicate_views:
@@ -162,10 +163,6 @@ class DbReplicator(th.Thread):
 
             include_tables = [table for table in include_tables
                               if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
-
-            if dynamic_tables:
-                self._do_dynamic(trg_connection,
-                                 trg_metadata, dynamic_tables)
 
             if include_tables:
                 self._do_include(trg_connection, trg_metadata, include_tables)
