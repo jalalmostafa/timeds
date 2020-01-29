@@ -1,0 +1,7 @@
+#! /bin/sh
+
+for (( ; ; ))
+do
+    python /opt/app-root/src/timeds.py 2>&1 | tee logs_$(date).log
+    sleep $SLEEP_TIME
+done
