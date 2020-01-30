@@ -36,11 +36,9 @@ host_structure = {
 db_structure = {
     'source': SchemeProperty('Source database name', str, True,),
     'target': SchemeProperty('Target database name', str, False,),
-    'timestamp_column': SchemeProperty('Timestamp column name', str, False, default='Time',),
     'exclude_tables': SchemeProperty('Excluded tables', str, False, default=[],),
     'include_tables': SchemeProperty('Table names', str, False, default=[],),
     'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', str, False, default=[],),
-    'replicate_views': SchemeProperty('Views replication', bool, False, default=False,),
     'naming_strategy': SchemeProperty('Target database naming scheme', ['replace', 'exact', 'original'], False, default='original',),
 }
 
@@ -152,12 +150,10 @@ class Config:
                 "databases": [{
                     "source": regex,
                     "target"?: string,
-                    "timestamp_column"?: string | "Time",
                     "naming_strategy"?: "replace" | "exact" | "original",
                     "exclude_tables"?: regex,
                     "include_tables"?: regex,
-                    "dynamic_tables"?: regex,
-                    "replicate_views"?: boolean
+                    "dynamic_tables"?: regex
                 }],
                 "batch_size"?: 100000
             }

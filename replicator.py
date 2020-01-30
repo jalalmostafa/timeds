@@ -9,7 +9,7 @@ from sqlalchemy_views import CreateView
 
 class DbReplicator(th.Thread):
     def __init__(self, scheme, config, src_db, trg_db, only_dynamic_and_views=False,
-                 include_tables=[], exclude_tables=[], dynamic_tables=[], replicate_views=False, timestamp_column='Time'):
+                 include_tables=[], exclude_tables=[], dynamic_tables=[],):
         super().__init__()
         self.only_dynamic_and_views = only_dynamic_and_views
         self.scheme = scheme
@@ -20,8 +20,6 @@ class DbReplicator(th.Thread):
         self.include_tables = include_tables
         self.exclude_tables = exclude_tables
         self.dynamic_tables = dynamic_tables
-        self.replicate_views = replicate_views
-        self.timestamp_column = timestamp_column
 
         self.src_engine = get_engine(self.scheme_conf.source, self.src_db)
         self.trg_engine = get_engine(self.scheme_conf.target, self.trg_db)
@@ -127,51 +125,46 @@ class DbReplicator(th.Thread):
             src_metadata = MetaData(bind=self.src_engine,)
             self.log.info(
                 'Reflecting source database %s' % (self.src_db), scheme=self.scheme)
-            src_metadata.reflect(views=self.replicate_views)
+            src_metadata.reflect(views=self.only_dynamic_and_views)
 
             trg_metadata = MetaData(bind=self.trg_engine,)
 
             src_views = inspect(self.src_engine).get_view_names()
-            include_tables = src_metadata.tables
+            include_tables = src_metadata.tables.values()
             dynamic_tables = []
             exclude_tables = []
 
             self.log.info(
                 'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
             try:
-                trg_metadata.reflect(views=self.replicate_views)
+                trg_metadata.reflect(views=self.only_dynamic_and_views)
             except Exception as e:
                 self.log.error(e, self.scheme)
 
-            if self.only_dynamic_and_views:
-                if self.dynamic_tables and self.only_dynamic_and_views:
-                    dynamic_tables = [include_tables[tab]
-                                      for tab in include_tables
-                                      if re.match(self.dynamic_tables, tab) and tab not in src_views]
+            if self.dynamic_tables:
+                dynamic_tables = [tab for tab in include_tables
+                                  if re.match(self.dynamic_tables, tab) and tab not in src_views]
+                if self.only_dynamic_and_views:
                     self._do_dynamic(
                         trg_connection, trg_metadata, dynamic_tables)
 
-                if self.replicate_views:
-                    views = [include_tables[tab]
-                             for tab in include_tables if tab in src_views]
+                    views = [tab for tab in include_tables if tab in src_views]
                     self._do_views(trg_connection, trg_metadata, views)
-            else:
-                if self.include_tables:
-                    include_tables = [include_tables[tab]
-                                      for tab in include_tables
-                                      if re.match(self.include_tables, tab)]
 
-                if self.exclude_tables:
-                    exclude_tables = [include_tables[tab]
-                                      for tab in include_tables
-                                      if re.match(self.exclude_tables, tab)]
+            if self.include_tables:
+                include_tables = [tab for tab in include_tables
+                                  if re.match(self.include_tables, tab)]
 
-                include_tables = [include_tables[table] for table in include_tables
-                                  if table not in exclude_tables and table not in dynamic_tables and table not in src_views]
+            if self.exclude_tables:
+                exclude_tables = [tab for tab in include_tables
+                                  if re.match(self.exclude_tables, tab)]
 
-                if include_tables:
-                    self._do_include(
-                        trg_connection, trg_metadata, include_tables)
+            include_tables = [table for table in include_tables
+                              if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
+
+            if include_tables:
+                self._do_include(
+                    trg_connection, trg_metadata, include_tables)
 
 
 class SchemeReplicator:
@@ -200,7 +193,7 @@ class SchemeReplicator:
             for db in dbs:
                 trg_db = self._get_db_name(db_conf, db)
                 replicator = DbReplicator(self.scheme, self.config, db, trg_db, only_dynamic_and_views=self.only_dynamic_and_views,
-                                          include_tables=db_conf.include_tables, exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables, replicate_views=db_conf.replicate_views, timestamp_column=db_conf.timestamp_column)
+                                          include_tables=db_conf.include_tables, exclude_tables=db_conf.exclude_tables, dynamic_tables=db_conf.dynamic_tables,)
                 replicators.append(replicator)
                 replicator.start()
 
