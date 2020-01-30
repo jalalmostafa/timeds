@@ -2,6 +2,6 @@
 
 for (( ; ; ))
 do
-    python /opt/app-root/src/timeds.py 2>&1 | tee /opt/app-root/logs/logs_$(date).log
+    python /opt/app-root/src/timeds.py --config /config/conf.json 2>&1 | tee /opt/app-root/logs/logs_$(date).log
     sleep $SLEEP_TIME
 done
