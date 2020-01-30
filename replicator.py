@@ -143,7 +143,7 @@ class DbReplicator(th.Thread):
 
             if self.dynamic_tables:
                 dynamic_tables = [tab for tab in include_tables
-                                  if re.match(self.dynamic_tables, tab) and tab not in src_views]
+                                  if re.match(self.dynamic_tables, tab.name) and tab not in src_views]
                 if self.only_dynamic_and_views:
                     self._do_dynamic(
                         trg_connection, trg_metadata, dynamic_tables)
@@ -153,11 +153,11 @@ class DbReplicator(th.Thread):
 
             if self.include_tables:
                 include_tables = [tab for tab in include_tables
-                                  if re.match(self.include_tables, tab)]
+                                  if re.match(self.include_tables, tab.name)]
 
             if self.exclude_tables:
                 exclude_tables = [tab for tab in include_tables
-                                  if re.match(self.exclude_tables, tab)]
+                                  if re.match(self.exclude_tables, tab.name)]
 
             include_tables = [table for table in include_tables
                               if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
