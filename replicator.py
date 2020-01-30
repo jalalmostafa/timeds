@@ -151,20 +151,21 @@ class DbReplicator(th.Thread):
                     views = [tab for tab in include_tables if tab in src_views]
                     self._do_views(trg_connection, trg_metadata, views)
 
-            if self.include_tables:
-                include_tables = [tab for tab in include_tables
-                                  if re.match(self.include_tables, tab.name)]
+            if not self.only_dynamic_and_views:
+                if self.include_tables:
+                    include_tables = [tab for tab in include_tables
+                                      if re.match(self.include_tables, tab.name)]
 
-            if self.exclude_tables:
-                exclude_tables = [tab for tab in include_tables
-                                  if re.match(self.exclude_tables, tab.name)]
+                if self.exclude_tables:
+                    exclude_tables = [tab for tab in include_tables
+                                      if re.match(self.exclude_tables, tab.name)]
 
-            include_tables = [table for table in include_tables
-                              if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
+                include_tables = [table for table in include_tables
+                                  if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
 
-            if include_tables:
-                self._do_include(
-                    trg_connection, trg_metadata, include_tables)
+                if include_tables:
+                    self._do_include(
+                        trg_connection, trg_metadata, include_tables)
 
 
 class SchemeReplicator:
