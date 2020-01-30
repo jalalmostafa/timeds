@@ -10,7 +10,7 @@ class ConfigException(Exception):
         self.scheme = scheme
 
     def __str__(self):
-        return f'[{self.scheme}] {self.message}'
+        return '[%s] %s' % (self.scheme, self.message)
 
 
 class SchemeProperty:
@@ -22,7 +22,7 @@ class SchemeProperty:
         self.child_type = child_type
 
     def __str__(self):
-        return f'(full_name={self.full_name}, type={self.type}, required={self.required}, default={self.default})'
+        return '(full_name=%s, type=%s, required=%s, default=%s)' % (self.full_name, self.type, self.required, self.default)
 
 
 host_structure = {
@@ -62,36 +62,36 @@ class Scheme:
         return self.conf[name]
 
     def __str__(self):
-        return '\n'.join([f'        {name}:\n{self.conf[name]}' for name in self.conf])
+        return '\n'.join(['        %s:\n%s' % (name, self.conf[name]) for name in self.conf])
 
     def _property_check(self, name, prototype, value):
 
         if not prototype:
-            raise ConfigException(self.name, f'Unrecognized option {name}')
+            raise ConfigException(self.name, 'Unrecognized option %s' % (name))
 
         full_name = prototype.full_name
         propertyType = prototype.type
 
         if prototype.required and not value:
             raise ConfigException(
-                self.name, f'Missing value: {name}. {full_name} is required!')
+                self.name, 'Missing value: %s. %s is required!' % (name, full_name))
 
         if value:
             if isinstance(propertyType, list):
                 if value not in propertyType:
                     raise ConfigException(
-                        self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+                        self.name, 'Invalid value: %s. %s is invalid!' % (name, full_name.lower()))
             elif isinstance(propertyType, dict):
                 if not value:
                     raise ConfigException(
-                        self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+                        self.name, 'Invalid value: %s. %s is invalid!' % (name, full_name.lower()))
 
                 for attr in propertyType:
                     value[attr] = self._property_check(
                         attr, propertyType.get(attr, None), value.get(attr, None))
             elif type(value) is not propertyType:
                 raise ConfigException(
-                    self.name, f'Invalid value: {name}. {full_name.lower()} is invalid!')
+                    self.name, 'Invalid value: %s. %s is invalid!' % (name, full_name.lower()))
             elif prototype.child_type:
                 for i, v in enumerate(value):
                     value[i] = self._property_check(
@@ -127,7 +127,7 @@ class ConfigDict:
         return self.dict[name]
 
     def __str__(self):
-        return '\n'.join([f'            {name}: {self.dict[name]}' for name in self.dict])
+        return '\n'.join(['            %s: %s' % (name, self.dict[name]) for name in self.dict])
 
 
 class Config:
@@ -178,4 +178,4 @@ class Config:
         return self.conf[key]
 
     def __str__(self):
-        return "Replication Schemes:" + '\n'.join([f"    {name}:\n{self.conf[name]}" for name in self.conf])
+        return "Replication Schemes:" + '\n'.join(["    %s:\n%s" % (name, self.conf[name]) for name in self.conf])

@@ -5,6 +5,7 @@ from log import Log
 from replicator import SchemeReplicator
 from pid.decorator import pidfile
 
+
 @pidfile('timeds.pid', piddir='/tmp')
 def main():
     parser = argparse.ArgumentParser(
@@ -13,8 +14,10 @@ def main():
                         action='store', help='Set replication configuration file')
     parser.add_argument('-v', action='store_true',
                         help='Verbose Mode. Print config, etc')
-    parser.add_argument('--only-dynamic-and-views', action='store_true', help='Only replicate dynamic tables and views')
-    parser.add_argument('-d', action='store_true', help='Only replicate dynamic tables and views')
+    parser.add_argument('--only-dynamic-and-views', action='store_true',
+                        help='Only replicate dynamic tables and views')
+    parser.add_argument('-d', action='store_true',
+                        help='Only replicate dynamic tables and views')
 
     args = parser.parse_args()
     log = Log()
@@ -26,11 +29,12 @@ def main():
             print(config)
 
         for scheme in config:
-            scheme = SchemeReplicator(scheme, config[scheme], only_dynamic_and_views=args.only_dynamic_and_views or args.d)
+            scheme = SchemeReplicator(
+                scheme, config[scheme], only_dynamic_and_views=args.only_dynamic_and_views or args.d)
             reps = scheme.run()
             replicators.extend(reps)
 
-        log.info(f'Started for {len(replicators)} database(s)...')
+        log.info('Started for %s database(s)...' % (len(replicators)))
         for rep in replicators:
             rep.join()
 

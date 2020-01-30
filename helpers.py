@@ -5,9 +5,9 @@ from connectors import connectors
 
 def create_connection_string(driver, host, port, username, password, db=''):
     if not db:
-        return f'{driver}+{connectors[driver]}://{username}:{password}@{host}:{port}/INFORMATION_SCHEMA'
+        return '%s+%s://%s:%s@%s:%s/INFORMATION_SCHEMA' % (driver, connectors[driver], username, password, host, port)
 
-    return f'{driver}+{connectors[driver]}://{username}:{password}@{host}:{port}/{db}'
+    return '%s+%s://%s:%s@%s:%s/%s' % (driver, connectors[driver], username, password, host, port, db)
 
 
 def get_engine(host_conf, db_name='', **kwargs):

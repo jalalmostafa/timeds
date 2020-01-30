@@ -28,7 +28,7 @@ class DbReplicator(th.Thread):
         if not database_exists(self.trg_engine.url):
             create_database(self.trg_engine.url)
             self.log.info(
-                f'Database {self.trg_db} was created', scheme=self.scheme)
+                'Database %s was created' % (self.trg_db), scheme=self.scheme)
 
     def _to_target_table(self, target_metadata, src_table):
         if src_table.name in target_metadata.tables:
@@ -56,7 +56,7 @@ class DbReplicator(th.Thread):
                 select_index = view_definition.lower().index('select')
                 view_definition = view_definition[select_index:]
                 stmt = CreateView(trg_view, text(view_definition))
-                stmt_msg = f'View {v.name} was created in {self.trg_db}'
+                stmt_msg = 'View %s was created in %s' % (v.name, self.trg_db)
                 self._run_transaction(trg_conn, stmt, stmt_msg,)
 
     def _do_dynamic(self, trg_conn, target_metadata, dynamic_tables):
@@ -65,7 +65,7 @@ class DbReplicator(th.Thread):
             if table.exists():
                 table.drop()
             self.log.info(
-                f'(re)creating dynamic table {self.trg_db}.{table.name}')
+                '(re)creating dynamic table %s.%s' % (self.trg_db, table.name))
             table.create()
 
             values = src_table.select().execute()
@@ -80,7 +80,8 @@ class DbReplicator(th.Thread):
                 else:
                     transaction.commit()
                     self.log.info(
-                        f'{values.rowcount} record(s) were inserted into the dynamic table {self.trg_db}.{table.name}',
+                        '%s record(s) were inserted into the dynamic table %s.%s' % (
+                            values.rowcount, self.trg_db, table.name),
                         scheme=self.scheme)
 
     def _do_include(self, trg_conn, target_metadata, time_tables):
@@ -116,7 +117,7 @@ class DbReplicator(th.Thread):
                     else:
                         transaction.commit()
                         self.log.info(
-                            f'Batch #{batch_nb}: {values.rowcount} record(s) were inserted into the table {self.trg_db}.{table.name} at offset {count}', scheme=self.scheme)
+                            'Batch #%s: %s record(s) were inserted into the table %s.%s at offset %s' % (batch_nb, values.rowcount, self.trg_db, table.name, count), scheme=self.scheme)
 
                 batch_nb += 1
                 count += values.rowcount
@@ -125,7 +126,7 @@ class DbReplicator(th.Thread):
         with self.trg_engine.connect() as trg_connection:
             src_metadata = MetaData(bind=self.src_engine,)
             self.log.info(
-                f'Reflecting source database {self.src_db}', scheme=self.scheme)
+                'Reflecting source database %s' % (self.src_db), scheme=self.scheme)
             src_metadata.reflect(views=self.replicate_views)
 
             trg_metadata = MetaData(bind=self.trg_engine,)
@@ -136,7 +137,7 @@ class DbReplicator(th.Thread):
             exclude_tables = []
 
             self.log.info(
-                f'Reflecting target database {self.trg_db}', scheme=self.scheme)
+                'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
             try:
                 trg_metadata.reflect(views=self.replicate_views)
             except Exception as e:
@@ -145,30 +146,32 @@ class DbReplicator(th.Thread):
             if self.only_dynamic_and_views:
                 if self.dynamic_tables and self.only_dynamic_and_views:
                     dynamic_tables = [include_tables[tab]
-                                    for tab in include_tables
-                                    if re.match(self.dynamic_tables, tab) and tab not in src_views]
-                    self._do_dynamic(trg_connection, trg_metadata, dynamic_tables)
+                                      for tab in include_tables
+                                      if re.match(self.dynamic_tables, tab) and tab not in src_views]
+                    self._do_dynamic(
+                        trg_connection, trg_metadata, dynamic_tables)
 
                 if self.replicate_views:
                     views = [include_tables[tab]
-                            for tab in include_tables if tab in src_views]
+                             for tab in include_tables if tab in src_views]
                     self._do_views(trg_connection, trg_metadata, views)
             else:
                 if self.include_tables:
                     include_tables = [include_tables[tab]
-                                    for tab in include_tables
-                                    if re.match(self.include_tables, tab)]
+                                      for tab in include_tables
+                                      if re.match(self.include_tables, tab)]
 
                 if self.exclude_tables:
                     exclude_tables = [include_tables[tab]
-                                    for tab in include_tables
-                                    if re.match(self.exclude_tables, tab)]
+                                      for tab in include_tables
+                                      if re.match(self.exclude_tables, tab)]
 
                 include_tables = [include_tables[table] for table in include_tables
-                                if table not in exclude_tables and table not in dynamic_tables and table not in src_views]
+                                  if table not in exclude_tables and table not in dynamic_tables and table not in src_views]
 
                 if include_tables:
-                    self._do_include(trg_connection, trg_metadata, include_tables)
+                    self._do_include(
+                        trg_connection, trg_metadata, include_tables)
 
 
 class SchemeReplicator:
