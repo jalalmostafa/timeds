@@ -1,6 +1,6 @@
 import re
 import threading as th
-from helpers import get_engine, get_databases_like
+from helpers import get_engine, get_databases_like, get_dialect_options
 from log import Log
 from sqlalchemy import MetaData, inspect, text
 from sqlalchemy_utils import database_exists, create_database
@@ -23,6 +23,8 @@ class DbReplicator(th.Thread):
 
         self.src_engine = get_engine(self.scheme_conf.source, self.src_db)
         self.trg_engine = get_engine(self.scheme_conf.target, self.trg_db)
+        self.dialect_options = get_dialect_options(
+            self.scheme_conf.target.driver)
         if not database_exists(self.trg_engine.url):
             create_database(self.trg_engine.url)
             self.log.info(
@@ -137,7 +139,7 @@ class DbReplicator(th.Thread):
             self.log.info(
                 'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
             try:
-                trg_metadata.reflect(views=self.only_dynamic_and_views)
+                trg_metadata.reflect(views=self.only_dynamic_and_views, **self.dialect_options)
             except Exception as e:
                 self.log.error(e, self.scheme)
 
