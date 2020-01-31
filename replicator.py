@@ -1,6 +1,7 @@
 import re
 import threading as th
-from helpers import get_engine, get_databases_like, get_dialect_options
+import time
+from helpers import get_engine, get_databases_like, get_dialect_kwargs
 from log import Log
 from sqlalchemy import MetaData, inspect, text
 from sqlalchemy_utils import database_exists, create_database
@@ -23,7 +24,7 @@ class DbReplicator(th.Thread):
 
         self.src_engine = get_engine(self.scheme_conf.source, self.src_db)
         self.trg_engine = get_engine(self.scheme_conf.target, self.trg_db)
-        self.dialect_options = get_dialect_options(
+        self.dialect_kwargs = get_dialect_kwargs(
             self.scheme_conf.target.driver)
         if not database_exists(self.trg_engine.url):
             create_database(self.trg_engine.url)
@@ -34,7 +35,11 @@ class DbReplicator(th.Thread):
         if src_table.name in target_metadata.tables:
             return target_metadata.tables[src_table.name]
 
-        return src_table.tometadata(target_metadata)
+        table = src_table.tometadata(target_metadata)
+        for key, value in self.dialect_kwargs.items():
+            table.dialect_kwargs[key] = value
+
+        return table
 
     def _run_transaction(self, trg_conn, stmt, finish_msg, stmt_params=None):
         with trg_conn.begin() as transaction:
@@ -69,6 +74,7 @@ class DbReplicator(th.Thread):
             table.create()
 
             values = src_table.select().execute()
+            start = time.time()
             with trg_conn.begin() as transaction:
                 try:
                     for v in values:
@@ -79,9 +85,10 @@ class DbReplicator(th.Thread):
                     self.log.error(e, scheme=self.scheme)
                 else:
                     transaction.commit()
+                    end = time.clock()
                     self.log.info(
-                        '%s record(s) were inserted into the dynamic table %s.%s' % (
-                            values.rowcount, self.trg_db, table.name),
+                        '%s record(s) were inserted in %s seconds into the dynamic table %s.%s' % (
+                            values.rowcount, end - start, self.trg_db, table.name),
                         scheme=self.scheme)
 
     def _do_include(self, trg_conn, target_metadata, time_tables):
@@ -105,7 +112,7 @@ class DbReplicator(th.Thread):
 
                 if not values.rowcount:
                     break
-
+                start = time.time()
                 with trg_conn.begin() as transaction:
                     try:
                         for v in values:
@@ -116,8 +123,9 @@ class DbReplicator(th.Thread):
                         self.log.error(e, scheme=self.scheme)
                     else:
                         transaction.commit()
+                        end = time.time()
                         self.log.info(
-                            'Batch #%s: %s record(s) were inserted into the table %s.%s at offset %s' % (batch_nb, values.rowcount, self.trg_db, table.name, count), scheme=self.scheme)
+                            'Batch #%s: %s record(s) were inserted in %s into the table %s.%s at offset %s' % (batch_nb, values.rowcount, end - start, self.trg_db, table.name, count), scheme=self.scheme)
 
                 batch_nb += 1
                 count += values.rowcount
@@ -139,7 +147,8 @@ class DbReplicator(th.Thread):
             self.log.info(
                 'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
             try:
-                trg_metadata.reflect(views=self.only_dynamic_and_views, **self.dialect_options)
+                trg_metadata.reflect(
+                    views=self.only_dynamic_and_views, **self.dialect_kwargs)
             except Exception as e:
                 self.log.error(e, self.scheme)
 

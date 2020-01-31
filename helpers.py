@@ -22,7 +22,7 @@ def get_databases_like(engine, regex):
     return [schema for schema in schemas if re.match(regex, schema)]
 
 
-def get_dialect_options(driver):
+def get_dialect_kwargs(driver):
     options = dialect_options[driver]
     return {'%s_%s' % (driver, key): value for key, value in options.items()}
 
