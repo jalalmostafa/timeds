@@ -4,6 +4,7 @@ import time
 from helpers import get_engine, get_databases_like, get_dialect_kwargs
 from log import Log
 from sqlalchemy import MetaData, inspect, text
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy_views import CreateView
 
@@ -24,6 +25,7 @@ class DbReplicator(th.Thread):
 
         self.src_engine = get_engine(self.scheme_conf.source, self.src_db)
         self.trg_engine = get_engine(self.scheme_conf.target, self.trg_db)
+        self.TargetSession = sessionmaker(bind=self.trg_engine)
         self.dialect_kwargs = get_dialect_kwargs(
             self.scheme_conf.target.driver)
         if not database_exists(self.trg_engine.url):
@@ -41,18 +43,24 @@ class DbReplicator(th.Thread):
 
         return table
 
-    def _run_transaction(self, trg_conn, stmt, finish_msg, stmt_params=None):
-        with trg_conn.begin() as transaction:
-            try:
-                trg_conn.execute(stmt, stmt_params)
-            except Exception as e:
-                transaction.rollback()
-                self.log.error(e, scheme=self.scheme)
-            else:
-                transaction.commit()
-                self.log.info(finish_msg, scheme=self.scheme)
+    def _run_transaction(self, session, stmt, finish_msg, stmt_params=None):
+        try:
+            session.execute(stmt, stmt_params)
+        except Exception as e:
+            session.rollback()
+            self.log.error(e, scheme=self.scheme)
+        else:
+            session.commit()
+            self.log.info(finish_msg, scheme=self.scheme)
+        finally:
+            session.close()
 
-    def _do_views(self, trg_conn, target_metadata, views):
+    def _run_target_transaction(self, stmt, finish_msg, stmt_params=None):
+        session = self.TargetSession()
+        self._run_transaction(session, stmt, finish_msg,
+                              stmt_params=stmt_params)
+
+    def _do_views(self, target_metadata, views):
         for v in views:
             trg_view = self._to_target_table(target_metadata, v)
             if not trg_view.exists():
@@ -62,9 +70,10 @@ class DbReplicator(th.Thread):
                 view_definition = view_definition[select_index:]
                 stmt = CreateView(trg_view, text(view_definition))
                 stmt_msg = 'View %s was created in %s' % (v.name, self.trg_db)
-                self._run_transaction(trg_conn, stmt, stmt_msg,)
+                self._run_target_transaction(stmt, stmt_msg,)
 
-    def _do_dynamic(self, trg_conn, target_metadata, dynamic_tables):
+    def _do_dynamic(self, target_metadata, dynamic_tables):
+        session = self.TargetSession()
         for src_table in dynamic_tables:
             table = self._to_target_table(target_metadata, src_table)
             if table.exists():
@@ -75,23 +84,24 @@ class DbReplicator(th.Thread):
 
             values = src_table.select().execute()
             start = time.time()
-            with trg_conn.begin() as transaction:
-                try:
-                    for v in values:
-                        stmt = table.insert(None).values(v)
-                        trg_conn.execute(stmt,)
-                except Exception as e:
-                    transaction.rollback()
-                    self.log.error(e, scheme=self.scheme)
-                else:
-                    transaction.commit()
-                    end = time.clock()
-                    self.log.info(
-                        '%s record(s) were inserted in %s seconds into the dynamic table %s.%s' % (
-                            values.rowcount, end - start, self.trg_db, table.name),
-                        scheme=self.scheme)
+            try:
+                for v in values:
+                    stmt = table.insert(None).values(v)
+                    session.execute(stmt,)
+            except Exception as e:
+                session.rollback()
+                self.log.error(e, scheme=self.scheme)
+            else:
+                session.commit()
+                end = time.clock()
+                self.log.info(
+                    '%s record(s) were inserted in %s seconds into the dynamic table %s.%s' % (
+                        values.rowcount, end - start, self.trg_db, table.name),
+                    scheme=self.scheme)
+            finally:
+                session.close()
 
-    def _do_include(self, trg_conn, target_metadata, time_tables):
+    def _do_include(self, target_metadata, time_tables):
         for src_table in time_tables:
             table = self._to_target_table(target_metadata, src_table)
             table.create(checkfirst=True)
@@ -112,71 +122,71 @@ class DbReplicator(th.Thread):
 
                 if not values.rowcount:
                     break
-                start = time.time()
-                with trg_conn.begin() as transaction:
-                    try:
-                        for v in values:
-                            stmt = table.insert(None).values(v)
-                            trg_conn.execute(stmt,)
-                    except Exception as e:
-                        transaction.rollback()
-                        self.log.error(e, scheme=self.scheme)
-                    else:
-                        transaction.commit()
-                        end = time.time()
-                        self.log.info(
-                            'Batch #%s: %s record(s) were inserted in %s into the table %s.%s at offset %s' % (batch_nb, values.rowcount, end - start, self.trg_db, table.name, count), scheme=self.scheme)
-
                 batch_nb += 1
-                count += values.rowcount
+                start = time.time()
+                session = self.TargetSession()
+                try:
+                    for v in values:
+                        stmt = table.insert(None).values(v)
+                        session.execute(stmt,)
+                except Exception as e:
+                    session.rollback()
+                    self.log.error(e, scheme=self.scheme)
+                    # error? => reset counting
+                    count = -1
+                else:
+                    session.commit()
+                    end = time.time()
+                    self.log.info(
+                        'Batch #%s: %s record(s) were inserted in %s into the table %s.%s at offset %s' % (batch_nb, values.rowcount, end - start, self.trg_db, table.name, count), scheme=self.scheme)
+                    count += values.rowcount
+                finally:
+                    session.close()
 
     def run(self):
-        with self.trg_engine.connect() as trg_connection:
-            src_metadata = MetaData(bind=self.src_engine,)
-            self.log.info(
-                'Reflecting source database %s' % (self.src_db), scheme=self.scheme)
-            src_metadata.reflect(views=self.only_dynamic_and_views)
+        src_metadata = MetaData(bind=self.src_engine,)
+        self.log.info(
+            'Reflecting source database %s' % (self.src_db), scheme=self.scheme)
+        src_metadata.reflect(views=self.only_dynamic_and_views)
 
-            trg_metadata = MetaData(bind=self.trg_engine,)
+        trg_metadata = MetaData(bind=self.trg_engine,)
 
-            src_views = inspect(self.src_engine).get_view_names()
-            include_tables = src_metadata.tables.values()
-            dynamic_tables = []
-            exclude_tables = []
+        src_views = inspect(self.src_engine).get_view_names()
+        include_tables = src_metadata.tables.values()
+        dynamic_tables = []
+        exclude_tables = []
 
-            self.log.info(
-                'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
-            try:
-                trg_metadata.reflect(
-                    views=self.only_dynamic_and_views, **self.dialect_kwargs)
-            except Exception as e:
-                self.log.error(e, self.scheme)
+        self.log.info(
+            'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
+        try:
+            trg_metadata.reflect(
+                views=self.only_dynamic_and_views, **self.dialect_kwargs)
+        except Exception as e:
+            self.log.error(e, self.scheme)
 
-            if self.dynamic_tables:
-                dynamic_tables = [tab for tab in include_tables
-                                  if re.match(self.dynamic_tables, tab.name) and tab not in src_views]
-                if self.only_dynamic_and_views:
-                    self._do_dynamic(
-                        trg_connection, trg_metadata, dynamic_tables)
+        if self.dynamic_tables:
+            dynamic_tables = [tab for tab in include_tables
+                              if re.match(self.dynamic_tables, tab.name) and tab not in src_views]
+            if self.only_dynamic_and_views:
+                self._do_dynamic(trg_metadata, dynamic_tables)
 
-                    views = [tab for tab in include_tables if tab in src_views]
-                    self._do_views(trg_connection, trg_metadata, views)
+                views = [tab for tab in include_tables if tab in src_views]
+                self._do_views(trg_metadata, views)
 
-            if not self.only_dynamic_and_views:
-                if self.include_tables:
-                    include_tables = [tab for tab in include_tables
-                                      if re.match(self.include_tables, tab.name)]
+        if not self.only_dynamic_and_views:
+            if self.include_tables:
+                include_tables = [tab for tab in include_tables
+                                  if re.match(self.include_tables, tab.name)]
 
-                if self.exclude_tables:
-                    exclude_tables = [tab for tab in include_tables
-                                      if re.match(self.exclude_tables, tab.name)]
+            if self.exclude_tables:
+                exclude_tables = [tab for tab in include_tables
+                                  if re.match(self.exclude_tables, tab.name)]
 
                 include_tables = [table for table in include_tables
                                   if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
 
-                if include_tables:
-                    self._do_include(
-                        trg_connection, trg_metadata, include_tables)
+            if include_tables:
+                self._do_include(trg_metadata, include_tables)
 
 
 class SchemeReplicator:
