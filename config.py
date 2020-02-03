@@ -31,6 +31,7 @@ host_structure = {
     'driver': SchemeProperty('Database type', supported_dbs, True,),
     'username': SchemeProperty('Database user', str, True,),
     'password': SchemeProperty('Database user password', str, True,),
+    'execute_first': SchemeProperty('Database user password', str, False,),
 }
 
 db_structure = {
@@ -146,6 +147,7 @@ class Config:
                     "driver": "mysql",
                     "username": string,
                     "password": string,
+                    "execute_first": string
                 },
                 "databases": [{
                     "source": regex,

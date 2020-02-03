@@ -28,6 +28,7 @@ class DbReplicator(th.Thread):
         self.TargetSession = sessionmaker(bind=self.trg_engine)
         self.dialect_kwargs = get_dialect_kwargs(
             self.scheme_conf.target.driver)
+
         if not database_exists(self.trg_engine.url):
             create_database(self.trg_engine.url)
             self.log.info(
@@ -195,6 +196,7 @@ class SchemeReplicator:
         self.config = config
         self.scheme = scheme
         self.only_dynamic_and_views = only_dynamic_and_views
+        self.log = Log()
 
     def _get_db_name(self, db_conf, original):
         if not db_conf.naming_strategy or db_conf.naming_strategy == 'original':
@@ -209,8 +211,19 @@ class SchemeReplicator:
     def run(self):
         replicators = []
 
+        main_engine = get_engine(self.config.source)
+        trg_engine = get_engine(self.config.target)
+        execute_first = self.config.target.execute_first
+        if execute_first:
+            try:
+                trg_engine.execute(execute_first)
+            except Exception as e:
+                self.log.error(e, scheme=self.scheme)
+            else:
+                self.log.info('Bootstrapped server with ' +
+                              execute_first, scheme=self.scheme)
+
         for db_conf in self.config.databases:
-            main_engine = get_engine(self.config.source)
             dbs = get_databases_like(main_engine, db_conf.source)
             for db in dbs:
                 trg_db = self._get_db_name(db_conf, db)
