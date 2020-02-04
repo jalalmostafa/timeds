@@ -70,7 +70,7 @@ class DbReplicator(th.Thread):
                 select_index = view_definition.lower().index('select')
                 view_definition = view_definition[select_index:]
                 stmt = CreateView(trg_view, text(view_definition))
-                stmt_msg = 'View %s was created in %s' % (v.name, self.trg_db)
+                stmt_msg = 'View %s.%s was created' % (self.trg_db, v.name,)
                 self._run_target_transaction(stmt, stmt_msg,)
 
     def _do_dynamic(self, target_metadata, dynamic_tables):
@@ -94,7 +94,7 @@ class DbReplicator(th.Thread):
                 self.log.error(e, scheme=self.scheme)
             else:
                 session.commit()
-                end = time.clock()
+                end = time.time()
                 self.log.info(
                     '%s record(s) were inserted in %s seconds into the dynamic table %s.%s' % (
                         values.rowcount, end - start, self.trg_db, table.name),
@@ -171,7 +171,7 @@ class DbReplicator(th.Thread):
             if self.only_dynamic_and_views:
                 self._do_dynamic(trg_metadata, dynamic_tables)
 
-                views = [tab for tab in include_tables if tab in src_views]
+                views = [tab for tab in include_tables if tab.name in src_views]
                 self._do_views(trg_metadata, views)
 
         if not self.only_dynamic_and_views:
