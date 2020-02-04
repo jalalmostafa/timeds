@@ -183,8 +183,8 @@ class DbReplicator(th.Thread):
                 exclude_tables = [tab for tab in include_tables
                                   if re.match(self.exclude_tables, tab.name)]
 
-                include_tables = [table for table in include_tables
-                                  if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
+            include_tables = [table for table in include_tables
+                              if table not in exclude_tables and table not in dynamic_tables and table.name not in src_views]
 
             if include_tables:
                 self._do_include(trg_metadata, include_tables)
