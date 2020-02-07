@@ -31,7 +31,7 @@ host_structure = {
     'driver': SchemeProperty('Database type', supported_dbs, True,),
     'username': SchemeProperty('Database user', str, True,),
     'password': SchemeProperty('Database user password', str, True,),
-    'execute_first': SchemeProperty('Database user password', str, False,),
+    'execute_first': SchemeProperty('Server bootstrap query', str, False, default=''),
 }
 
 db_structure = {
@@ -41,6 +41,7 @@ db_structure = {
     'include_tables': SchemeProperty('Table names', str, False, default=[],),
     'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', str, False, default=[],),
     'naming_strategy': SchemeProperty('Target database naming scheme', ['replace', 'exact', 'original'], False, default='original',),
+    'order_by': SchemeProperty('SQL Order By Column', str, False, default=''),
 }
 
 root_structure = {
