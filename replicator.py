@@ -67,16 +67,14 @@ class DbReplicator(th.Thread):
     def _do_views(self, target_metadata, views):
         for v in views:
             trg_view = self._to_target_table(target_metadata, v)
-            if trg_view.exists():
-                trg_view.drop()
-
-            view_definition = inspect(self.src_engine) \
-                .get_view_definition(v.name)
-            select_index = view_definition.lower().index('select')
-            view_definition = view_definition[select_index:]
-            stmt = CreateView(trg_view, text(view_definition))
-            self._run_target_transaction(
-                stmt, 'View %s.%s was (re)created' % (self.trg_db, v.name,),)
+            if not trg_view.exists():
+                view_definition = inspect(self.src_engine) \
+                    .get_view_definition(v.name)
+                select_index = view_definition.lower().index('select')
+                view_definition = view_definition[select_index:]
+                stmt = CreateView(trg_view, text(view_definition))
+                self._run_target_transaction(
+                    stmt, 'View %s.%s was (re)created' % (self.trg_db, v.name,),)
 
     def _do_dynamic(self, target_metadata, dynamic_tables):
         session = self.TargetSession()
