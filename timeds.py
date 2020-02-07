@@ -8,7 +8,7 @@ from replicator import SchemeReplicator
 def main():
     parser = argparse.ArgumentParser(
         description='Replicate databases using Timestamps in SQL Tables')
-    parser.add_argument('--config', '-c', default='conf.json',
+    parser.add_argument('--config', '-c', default='/config/conf.json',
                         action='store', help='Set replication configuration file')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose Mode. Print config, etc')
