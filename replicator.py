@@ -34,8 +34,7 @@ class DbReplicator(th.Thread):
 
         if not database_exists(self.trg_engine.url):
             create_database(self.trg_engine.url)
-            self.log.info(
-                'Database %s was created' % (self.trg_db), scheme=self.scheme)
+            self.log.database_created(scheme=self.scheme, db=self.trg_db)
 
     def _to_target_table(self, target_metadata, src_table):
         if src_table.name in target_metadata.tables:
@@ -47,22 +46,20 @@ class DbReplicator(th.Thread):
 
         return table
 
-    def _run_transaction(self, session, stmt, finish_msg, stmt_params=None):
+    def _run_transaction(self, session, stmt, stmt_params=None):
         try:
             session.execute(stmt, stmt_params)
         except Exception as e:
             session.rollback()
-            self.log.error(e, scheme=self.scheme)
+            raise e
         else:
             session.commit()
-            self.log.info(finish_msg, scheme=self.scheme)
         finally:
             session.close()
 
-    def _run_target_transaction(self, stmt, finish_msg, stmt_params=None):
+    def _run_target_transaction(self, stmt, stmt_params=None):
         session = self.TargetSession()
-        self._run_transaction(session, stmt, finish_msg,
-                              stmt_params=stmt_params)
+        self._run_transaction(session, stmt, stmt_params=stmt_params)
 
     def _do_views(self, target_metadata, views):
         for v in views:
@@ -73,8 +70,13 @@ class DbReplicator(th.Thread):
                 select_index = view_definition.lower().index('select')
                 view_definition = view_definition[select_index:]
                 stmt = CreateView(trg_view, text(view_definition))
-                self._run_target_transaction(
-                    stmt, 'View %s.%s was (re)created' % (self.trg_db, v.name,),)
+                try:
+                    self._run_target_transaction(stmt,)
+                except Exception as e:
+                    self.log.exception(e, scheme=self.scheme, db=self.trg_db)
+                else:
+                    self.log.view_created(
+                        v.name, scheme=self.scheme, db=self.trg_db)
 
     def _do_dynamic(self, target_metadata, dynamic_tables):
         session = self.TargetSession()
@@ -82,8 +84,8 @@ class DbReplicator(th.Thread):
             table = self._to_target_table(target_metadata, src_table)
             if table.exists():
                 table.drop()
-            self.log.info(
-                '(re)creating dynamic table %s.%s' % (self.trg_db, table.name))
+            self.log.dynamic_recreated(
+                table.name, scheme=self.scheme, db=self.trg_db)
             table.create()
 
             values = src_table.select().execute()
@@ -94,14 +96,12 @@ class DbReplicator(th.Thread):
                     session.execute(stmt,)
             except Exception as e:
                 session.rollback()
-                self.log.error(e, scheme=self.scheme)
+                self.log.exception(e, scheme=self.scheme, db=self.trg_db)
             else:
                 session.commit()
                 end = time.time()
-                self.log.info(
-                    '%s record(s) were inserted in %s seconds into the dynamic table %s.%s' % (
-                        values.rowcount, end - start, self.trg_db, table.name),
-                    scheme=self.scheme)
+                self.log.batch_dynamic(
+                    values.rowcount, end - start, table.name, scheme=self.scheme, db=self.trg_db)
             finally:
                 session.close()
 
@@ -130,8 +130,11 @@ class DbReplicator(th.Thread):
                         data_query = data_query.order_by(
                             src_table.c[self.order_by])
 
+                    read_start = time.time()
                     values = data_query.execute().fetchall()
+                    read_end = time.time()
                     if len(values):
+                        write_start = time.time()
                         stmt = table.insert(None)
                         session.execute(stmt, values)
                     else:
@@ -140,19 +143,20 @@ class DbReplicator(th.Thread):
                     # error? => reset counting
                     count = -1
                 except exc.InternalError as e:
-                    self.log.error(e, scheme=self.scheme)
+                    self.log.exception(e, scheme=self.scheme, db=self.trg_db)
                     # error? => reset counting
                     count = -1
                 except:
                     session.rollback()
-                    self.log.error(e, scheme=self.scheme)
+                    self.log.exception(e, scheme=self.scheme, db=self.trg_db)
                     # error? => reset counting
                     count = -1
                 else:
                     session.commit()
+                    write_end = time.time()
                     end = time.time()
-                    self.log.info(
-                        'Batch #%s: %s record(s) were inserted in %s into the table %s.%s at offset %s' % (batch_nb, len(values), end - start, self.trg_db, table.name, count), scheme=self.scheme)
+                    self.log.batch_include(batch_nb, len(values), table.name, count, end-start,
+                                           read_end-read_start, write_end-write_start, scheme=self.scheme, db=self.trg_db)
                     count += len(values)
                     batch_nb += 1
                 finally:
@@ -160,8 +164,7 @@ class DbReplicator(th.Thread):
 
     def run(self):
         src_metadata = MetaData(bind=self.src_engine,)
-        self.log.info(
-            'Reflecting source database %s' % (self.src_db), scheme=self.scheme)
+        self.log.reflecting_source(scheme=self.scheme, db=self.src_db)
         src_metadata.reflect(views=self.only_dynamic_and_views)
 
         trg_metadata = MetaData(bind=self.trg_engine,)
@@ -171,13 +174,12 @@ class DbReplicator(th.Thread):
         dynamic_tables = []
         exclude_tables = []
 
-        self.log.info(
-            'Reflecting target database %s' % (self.trg_db), scheme=self.scheme)
+        self.log.reflecting_target(scheme=self.scheme, db=self.trg_db)
         try:
             trg_metadata.reflect(
                 views=self.only_dynamic_and_views, **self.dialect_kwargs)
         except Exception as e:
-            self.log.error(e, self.scheme)
+            self.log.exception(e, scheme=self.scheme)
 
         if self.dynamic_tables:
             dynamic_tables = [tab for tab in include_tables
@@ -232,10 +234,9 @@ class SchemeReplicator:
             try:
                 trg_engine.execute(execute_first)
             except Exception as e:
-                self.log.error(e, scheme=self.scheme)
+                self.log.exception(e, scheme=self.scheme,)
             else:
-                self.log.info('Bootstrapped target server with ' +
-                              execute_first, scheme=self.scheme)
+                self.log.bootstrapped_with(execute_first, scheme=self.scheme)
 
         for db_conf in self.config.databases:
             dbs = get_databases_like(main_engine, db_conf.source)

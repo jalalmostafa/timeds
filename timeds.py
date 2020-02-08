@@ -35,7 +35,7 @@ def main():
             rep.join()
 
     except conf.ConfigException as e:
-        log.error(e)
+        log.exception(e)
 
 
 if __name__ == "__main__":
