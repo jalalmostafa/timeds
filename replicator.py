@@ -3,7 +3,7 @@ import threading as th
 import time
 from helpers import get_engine, get_databases_like, get_dialect_kwargs
 from log import Log
-from sqlalchemy import MetaData, inspect, text, exc
+from sqlalchemy import MetaData, inspect, text, exc, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy_views import CreateView
@@ -114,24 +114,21 @@ class DbReplicator(th.Thread):
         for src_table in time_tables:
             table = self._to_target_table(target_metadata, src_table)
 
-            count = -1
+            latest = None
             while True:
                 start = time.time()
                 session = self.TargetSession()
 
                 try:
-                    count = table.count().scalar() if count == -1 else count
+                    latest = select([table.c[self.order_by]]).limit(1).order_by(table.c[self.order_by].desc()).scalar()
+                    data_query = src_table.select(limit=self.scheme_conf.batch_size).order_by(src_table.c[self.order_by])
 
-                    data_query = src_table \
-                        .select(offset=count, limit=self.scheme_conf.batch_size) \
-                        if count else src_table.select(limit=self.scheme_conf.batch_size)
-
-                    if self.order_by:
-                        data_query = data_query.order_by(
-                            src_table.c[self.order_by])
+                    if latest:
+                        data_query = data_query.where(src_table.c[self.order_by] > latest)
 
                     read_start = time.time()
-                    values = data_query.execute().fetchall()
+                    result_values = data_query.execute()
+                    values = result_values.fetchall()
                     read_end = time.time()
                     if len(values):
                         write_start = time.time()
@@ -139,25 +136,17 @@ class DbReplicator(th.Thread):
                         session.execute(stmt, values)
                     else:
                         break
-                except exc.OperationalError as e:
-                    # error? => reset counting
-                    count = -1
-                except exc.InternalError as e:
+                except (exc.OperationalError, exc.InternalError) as e:
                     self.log.exception(e, scheme=self.scheme, db=self.trg_db)
-                    # error? => reset counting
-                    count = -1
-                except:
+                except Exception as e:
                     session.rollback()
                     self.log.exception(e, scheme=self.scheme, db=self.trg_db)
-                    # error? => reset counting
-                    count = -1
                 else:
                     session.commit()
                     write_end = time.time()
                     end = time.time()
-                    self.log.batch_include(batch_nb, len(values), table.name, count, end-start,
+                    self.log.batch_include(batch_nb, len(values), table.name, latest, end-start,
                                            read_end-read_start, write_end-write_start, scheme=self.scheme, db=self.trg_db)
-                    count += len(values)
                     batch_nb += 1
                 finally:
                     session.close()

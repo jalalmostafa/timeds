@@ -22,9 +22,9 @@ class Log:
         log.info('%s record(s) were inserted into the dynamic table %s in %s sec' % (
             count, table_name, int(time)), extra=self._construct_params(kwargs))
 
-    def batch_include(self, batch_nb, count, table_name, offset, time, read_time, write_time, **kwargs):
-        log.info('Batch #%s: %s records were inserted into %s at offset %s. Total: %s sec (read=%s, write=%s)' % (
-            batch_nb, count, table_name, offset, int(time), int(read_time), int(write_time)), extra=self._construct_params(kwargs))
+    def batch_include(self, batch_nb, count, table_name, latest, time, read_time, write_time, **kwargs):
+        log.info('Batch #%s: %s records were inserted into [%s] at %s. Total: %s sec (read=%s, write=%s)' % (
+            batch_nb, count, table_name, latest, int(time), int(read_time), int(write_time)), extra=self._construct_params(kwargs))
 
     def database_created(self, **kwargs):
         log.info('Database was created', extra=self._construct_params(kwargs))

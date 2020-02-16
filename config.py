@@ -41,7 +41,7 @@ db_structure = {
     'include_tables': SchemeProperty('Table names', str, False, default=[],),
     'dynamic_tables': SchemeProperty('No-timestamp tables (recreated on every sync operation)', str, False, default=[],),
     'naming_strategy': SchemeProperty('Target database naming scheme', ['replace', 'exact', 'original'], False, default='original',),
-    'order_by': SchemeProperty('SQL Order By Column', str, False, default=''),
+    'order_by': SchemeProperty('SQL Order By Column', str, True, default=''),
 }
 
 root_structure = {
