@@ -3,6 +3,27 @@ import logging as log
 import sys
 
 
+# class LazyStreamHandler(log.StreamHandler):
+#     def emit(self, record) -> None:
+#         if self.buffer is None:
+#             self.buffer = []
+
+#         if len(self.buffer) >= 10000:
+#             self.buffer.append(record)
+#             self.buffer = None
+#         else:
+#             for rec in self.buffer:
+#                 try:
+#                     msg = self.format(rec)
+#                     stream = self.stream
+#                     stream.write(msg + self.terminator)
+#                 except RecursionError:  # See issue 36272
+#                     raise
+#                 except Exception:
+#                     self.handleError(record)
+#             self.flush()
+
+
 class Log:
 
     def __init__(self):
